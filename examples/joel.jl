@@ -62,7 +62,7 @@ residual(T, β, q, dx, dy, T_boundary) =
 # Derivative stuff
 function solve_direct(x, u, ∂R∂x, ∂R∂u)
     ∂R∂u_sq = reshape(∂R∂u, (length(u[:]), length(u[:])))
-    reshape(hcat((∂R∂u_sq \ -(∂R∂x)[:,:,i][:] for i in eachindex(x))...), (size(u)..., length(x)))
+    reshape(reduce(hcat, ∂R∂u_sq \ -(∂R∂x)[:,:,i][:] for i in eachindex(x)), (size(u)..., length(x)))
 end
 
 function solve_adjoint(u, ∂R∂u, dfdu) 

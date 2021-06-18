@@ -140,7 +140,7 @@ R, p, ε = newton_solver!(R, p, num_iters, α)
 # Derivative stuff
 function solve_direct(x, p, ∂R∂x, ∂R∂p)
     ∂R∂p_sq = reshape(∂R∂p, (length(p[:]), length(p[:])))
-    reshape(hcat((∂R∂p_sq \ -(∂R∂x)[:,:,i][:] for i in eachindex(x))...), (size(p)..., length(x)))
+    reshape(reduce(hcat, ∂R∂p_sq \ -(∂R∂x)[:,:,i][:] for i in eachindex(x)), (size(p)..., length(x)))
 end
 
 function solve_adjoint(p, ∂R∂p, dfdp) 
