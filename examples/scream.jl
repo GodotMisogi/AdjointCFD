@@ -26,18 +26,18 @@ central_2nd(φp, φ, φm)     = φm - 2φ + φp
 Δ_forward(φ1, φ2, Δt)      = (φ2 - φ1) / Δt
 
 # First derivatives
-Δx_central(φ, ps)  = Δ_central(φ[4], φ[1], norm(ps[4] .- ps[1]))
-Δy_central(φ, ps)  = Δ_central(φ[5], φ[2], norm(ps[5] .- ps[2]))
+Δx_central(φ, dx)  = Δ_central(φ[4], φ[1], dx)
+Δy_central(φ, dy)  = Δ_central(φ[5], φ[2], dy)
 
-Δx_backward(φ, ps) = Δ_backward(φ[3], φ[1], norm(ps[3] .- ps[1]))
-Δy_backward(φ, ps) = Δ_backward(φ[3], φ[2], norm(ps[3] .- ps[2]))
+Δx_backward(φ, dx) = Δ_backward(φ[3], φ[1], dx)
+Δy_backward(φ, dy) = Δ_backward(φ[3], φ[2], dy)
 
-Δx_forward(φ, ps)  = Δ_forward(φ[4], φ[3], norm(ps[4] .- ps[3]))
-Δy_forward(φ, ps)  = Δ_forward(φ[5], φ[3], norm(ps[5] .- ps[3]))
+Δx_forward(φ, dx)  = Δ_forward(φ[4], φ[3], dx)
+Δy_forward(φ, dy)  = Δ_forward(φ[5], φ[3], dy)
 
 # Second derivatives
-Δ²x_central(φ, ps) = Δ²_central(φ[4], φ[3], φ[1], norm(ps[4] .- ps[1]))
-Δ²y_central(φ, ps) = Δ²_central(φ[5], φ[3], φ[2], norm(ps[5] .- ps[2]))
+Δ²x_central(φ, dx) = Δ²_central(φ[4], φ[3], φ[1], dx)
+Δ²y_central(φ, dx) = Δ²_central(φ[5], φ[3], φ[2], dy)
 
 # Boundary
 function substitute(φ, index, val)
@@ -91,7 +91,10 @@ polynomial(x, coeffs) = sum(k -> k[1] * x^k[2], zip(coeffs, 0:length(coeffs)-1))
 # Grid generation
 xs      = range(0, 1, length = nx)
 ys      = polynomial.(xs, Ref(ones(5)))
-grid    = reshape([ (x, y) for (x, y_max) in zip(xs, ys) for y in range(y_max, -y_max, length = 2ny) ], 2ny, nx)
+grid    = reshape([ SVector(x, y) for (x, y_max) in zip(xs, ys) for y in range(y_max, -y_max, length = 2ny) ], 2ny, nx)
+
+# Compute grid spacings
+ds_vec = norm.(grid[2:end,2:end] .- grid[1:end-1,1:end-1])
 
 ##
 α       = 1.0
@@ -117,16 +120,26 @@ compute_grad_fwd(R, p) = ForwardDiff.jacobian(compute_residuals!, R, p)
 #=================================================================#
 
 function newton_solver!(R, p, num_iters = 3, α = 1.0)
+    # Array to store errors
     ε = zeros(num_iters);
+
+    # Newton iteration loop
     for i in 1:num_iters
+        # Compute residuals
         R    = compute_residuals!(R, p)
+
+        # Compute Jacobian
         ∂R∂p = compute_grad_fwd(R, p)
+
+        # Compute Newton step
         Δp   = ∂R∂p \ -R
+
+        # Update state with relaxation factor
         p   .= newton_update!(p, Δp, α)
 
         # Error processing
         ε[i] = maximum(abs.(Δp))
-        println("Newton step error: $(ε[i])")
+        println("Newton step error L² norm: $(ε[i])")
     end
     R, p, ε
 end
@@ -138,14 +151,9 @@ R, p, ε = newton_solver!(R, p, num_iters, α)
 ## Optimization setup
 
 # Derivative stuff
-function solve_direct(x, p, ∂R∂x, ∂R∂p)
-    ∂R∂p_sq = reshape(∂R∂p, (length(p[:]), length(p[:])))
-    reshape(reduce(hcat, ∂R∂p_sq \ -(∂R∂x)[:,:,i][:] for i in eachindex(x)), (size(p)..., length(x)))
-end
+solve_direct(x, p, ∂R∂x, ∂R∂p) = reshape(reduce(hcat, ∂R∂p \ -(∂R∂x)[:,:,i][:] for i in eachindex(x)), (size(p)..., length(x)))
 
-function solve_adjoint(p, ∂R∂p, dfdp) 
-    reshape(∂R∂p, (length(p[:]), length(p[:])))' \ -(dfdp)'[:]
-end
+solve_adjoint(f, p, ∂R∂p, dfdp) = reshape(reduce(hcat, ∂R∂p' \ -(dfdp)'[i,:] for i in eachindex(f)), (length(f), size(p)...)
 
 total_derivative_direct(∂f∂x, ψ, ∂f∂p) = ∂f∂x + [ sum(∂f∂p * ψ[n]) for n in eachindex(∂f∂x) ]
 

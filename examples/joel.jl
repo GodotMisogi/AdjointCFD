@@ -3,17 +3,13 @@
 using LinearAlgebra
 using Zygote
 using StaticArrays
+using SparseArrays
 using Base.Iterators
 
 # Newton iteration
 prod_size(tensor) = (prod ∘ size)(tensor)
 
-function newton_step(u, R, ∂R∂u)
-    i, j = size(R)
-    l, k = size(u)
-    jac = reshape(∂R∂u, (i*k, j*l))
-    reshape(jac \ -R[:], size(u)) 
-end
+newton_step(u, R, ∂R∂u) = reshape(∂R∂u \ -R[:], size(u))
 
 ## Finite differencing
 central_2nd(Tm, T, Tp) = Tm - 2T + Tp
@@ -77,7 +73,7 @@ total_derivative_adjoint(∂f∂x, φ, ∂R∂x) = ∂f∂x + [ sum(permutedims(
 
 function ∇residual_cell_T_update!(∂R∂T, grad, k, l)
     a, b, c, d = size(∂R∂T)  
-    ∂R∂T[k,l,k,l] = grad[1]
+    ∂R∂T[k,l,k,l]            = grad[1]
     if k > 1 ∂R∂T[k,l,k-1,l] = grad[2] end
     if k < a ∂R∂T[k,l,k+1,l] = grad[3] end
     if l > 1 ∂R∂T[k,l,k,l-1] = grad[4] end
@@ -87,9 +83,9 @@ end
 ∇residual(T, β, q, dx, dy, T_boundary) = gradient(residual, T, β, q, dx, dy, T_boundary)
 
 ∇residual_β(T, β, q₀, dx, dy, T_boundary) = 
-        [ let Ts = stencil_1(T, R_ind.I..., T_boundary);
-            ∇residual_cell(Ts, β, q₀[R_ind], dx, dy)[2][i] end for
-            R_ind in CartesianIndices(R), i in eachindex(β) ]
+        [ let Ts = stencil_1(T, T_ind.I..., T_boundary);
+            ∇residual_cell(Ts, β, q₀[T_ind], dx, dy)[2][i] end for
+            T_ind in CartesianIndices(T), i in eachindex(β) ]
 
 function compute_residual_and_grad(T, β, q, dx, dy)
     # Residual
@@ -104,7 +100,7 @@ function compute_residual_and_grad(T, β, q, dx, dy)
         ∇residual_cell_T_update!(∂R∂T, grad, T_ind.I...)
     end
 
-    R, ∂R∂T
+    R, sparse(reshape(∂R∂T, size(R) .* reverse(T_size)))
 end
 
 
@@ -134,7 +130,7 @@ for i in 1:num_iters
     ΔT = newton_step(T_truth, R, ∂R∂T)
     ε[i] = maximum(abs.(ΔT))
     # display(R)
-    println("Newton step error: $(ε[i])")
+    println("Newton step error L² norm: $(ε[i])")
     T_truth .+= ω * ΔT
 end
 

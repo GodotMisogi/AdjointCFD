@@ -117,17 +117,26 @@ compute_grad_fwd(R, p) = ForwardDiff.jacobian(compute_residuals!, R, p)
 #=================================================================#
 
 function newton_solver!(R, p, num_iters = 3, α = 1.0)
+    # Array to store errors
     ε = zeros(num_iters);
+
+    # Newton iteration loop
     for i in 1:num_iters
+        # Compute residuals
         R    = compute_residuals!(R, p)
+
+        # Compute Jacobian
         ∂R∂p = compute_grad_fwd(R, p)
+
+        # Compute Newton step
         Δp   = ∂R∂p \ -R
+
+        # Update state with relaxation factor
         p   .= newton_update!(p, Δp, α)
 
         # Error processing
         ε[i] = maximum(abs.(Δp))
-        # display(R)
-        println("Newton step error: $(ε[i])")
+        println("Newton step error L² norm: $(ε[i])")
     end
     R, p, ε
 end
@@ -141,14 +150,9 @@ using Seaborn
 ## Optimization setup
 
 # Derivative stuff
-function solve_direct(x, p, ∂R∂x, ∂R∂p)
-    ∂R∂p_sq = reshape(∂R∂p, (length(p[:]), length(p[:])))
-    reshape(reduce(hcat, ∂R∂p_sq \ -(∂R∂x)[:,:,i][:] for i in eachindex(x)), (size(p)..., length(x)))
-end
+solve_direct(x, p, ∂R∂x, ∂R∂p) = reshape(reduce(hcat, ∂R∂p \ -(∂R∂x)[:,:,i][:] for i in eachindex(x)), (size(p)..., length(x)))
 
-function solve_adjoint(p, ∂R∂p, dfdp) 
-    reshape(∂R∂p, (length(p[:]), length(p[:])))' \ -(dfdp)'[:]
-end
+solve_adjoint(f, p, ∂R∂p, dfdp) = reshape(reduce(hcat, ∂R∂p' \ -(dfdp)'[i,:] for i in eachindex(f)), (length(f), size(p)...))
 
 total_derivative_direct(∂f∂x, ψ, ∂f∂p) = ∂f∂x + [ sum(∂f∂p * ψ[n]) for n in eachindex(∂f∂x) ]
 
