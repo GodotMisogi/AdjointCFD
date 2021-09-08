@@ -17,15 +17,14 @@ von_neumann_stencil(CI, n) = stencils(CI, n, true)
 moore_stencil(CI, n)       = stencils(CI, n, false)
 cs_stencil(φ, index)       = @view φ[von_neumann_stencil(index, 0)]
 
-## Difference operators specific to CS stencil
-
-# Finite differencing operations on values
-central_2nd(φp, φ, φm)     = φm - 2φ + φp
-Δ²_central(φp, φ, φm, Δx)  = central_2nd(φp, φ, φm) / Δx^2
-Δ_central(φp, φm, Δx)      = (φp - φm) / 2Δx
-Δ_forward(φ1, φ2, Δt)      = (φ2 - φ1) / Δt
+## Finite differencing operations on values and stencils
 
 # First derivatives
+Δ_central(φp, φm, Δx)     = (φp - φm) / 2Δx
+Δ_forward(φ1, φ2, Δt)     = (φ2 - φ1) / Δt
+central_2nd(φp, φ, φm)    = φm - 2φ + φp
+
+# Stencil
 Δx_central(φ, dx)  = Δ_central(φ[4], φ[1], dx)
 Δy_central(φ, dy)  = Δ_central(φ[5], φ[2], dy)
 
@@ -36,10 +35,17 @@ central_2nd(φp, φ, φm)     = φm - 2φ + φp
 Δy_forward(φ, dy)  = Δ_forward(φ[5], φ[3], dy)
 
 # Second derivatives
-Δ²x_central(φ, dx) = Δ²_central(φ[4], φ[3], φ[1], dx)
-Δ²y_central(φ, dx) = Δ²_central(φ[5], φ[3], φ[2], dy)
+Δ²_central(φp, φ, φm, Δx) = central_2nd(φp, φ, φm) / Δx^2
+Δ²_central(φp, φ, φm, Δxp, Δxm) = Δ_forward(φp, φ, Δxp) - Δ_forward(φ, φm, Δxm)
 
-# Boundary
+# Stencil
+Δ²x_central(φ, dx) = Δ²_central(φ[4], φ[3], φ[1], dx)
+Δ²y_central(φ, dy) = Δ²_central(φ[5], φ[3], φ[2], dy)
+
+Δ²x_central(φ, dxs) = Δ²_central(φ[4], φ[3], φ[1], dxs[1], dxs[2])
+Δ²y_central(φ, dys) = Δ²_central(φ[5], φ[3], φ[2], dys[1], dys[2])
+
+# Boundary (this needs type distinctions between boundary and non-boundary cells to be efficient)
 function substitute(φ, index, val)
     if index ∈ CartesianIndices(φ)
         φ[index]
@@ -49,23 +55,23 @@ function substitute(φ, index, val)
 end
 
 ## Governing equations and residual setup
-temperature_residual(φ, k, q, pts) = -k * (Δ²x_central(φ, pts) + Δ²y_central(φ, pts)) + q
+temperature_residual(φ, k, q, ds) = -k * (Δ²x_central(φ, ds[1:2]) + Δ²y_central(φ, ds[3:4])) + q
 
-# Ruleset for thermal conduction with a source field
-function ruleset(φs, σs, k, grid, index, φ_boundaries)
+# Ruleset for thermal diffusion with a source field
+function ruleset(φs, σs, k, ds, index, φ_boundaries)
     # Resize fields to grid
-    φs = reshape(φs, size(grid)...)
-    σs = reshape(σs, size(grid)...)
+    φs = reshape(φs, size(grid))
+    σs = reshape(σs, size(grid))
 
     # Boundary conditions check
     if any(index.I .<= 1) || any(index.I .>= size(φs))
         # There have to be more conditions generally...
         φs_vec = [ substitute(φs, local_index, φ_boundaries) for local_index in von_neumann_stencil(index, 0) ]
-        ds_vec = [ substitute(grid, local_index, 0.1)        for local_index in von_neumann_stencil(index, 0) ]
+        ds_vec = [ substitute(ds, local_index, 0.1)          for local_index in von_neumann_stencil(index, 0) ]
     else
         # Get neighbours of a cell and corresponding sizes
         φs_vec = cs_stencil(φs, index)
-        ds_vec = cs_stencil(grid, index)
+        ds_vec = cs_stencil(ds, index)
     end
 
     σ = σs[index]
@@ -75,7 +81,7 @@ function ruleset(φs, σs, k, grid, index, φ_boundaries)
 end
 
 # Compute residual equations
-compute_residuals(p, σ, k, grid, φ_boundary) = [ ruleset(p, σ, k, grid, index, φ_boundary) for index in CartesianIndices(grid) ]
+compute_residuals(p, σ, k, ds, φ_boundary) = map(index -> ruleset(p, σ, k, ds, index, φ_boundary), CartesianIndices(p))
 
 newton_update(p, δp, α = 1.0) = p - α * δp
 
@@ -94,7 +100,7 @@ ys      = polynomial.(xs, Ref(ones(5)))
 grid    = reshape([ SVector(x, y) for (x, y_max) in zip(xs, ys) for y in range(y_max, -y_max, length = 2ny) ], 2ny, nx)
 
 # Compute grid spacings
-ds_vec = norm.(grid[2:end,2:end] .- grid[1:end-1,1:end-1])
+ds = norm.(grid[2:end,2:end] .- grid[1:end-1,1:end-1])
 
 ##
 α       = 1.0
@@ -109,7 +115,7 @@ R       = similar(p)
 # ∂R∂p = zeros(2 .* (prod(size(ωs)), prod((reverse ∘ size)(ωs)))...)
 
 num_iters = 3
-compute_residuals!(R, p) = R .= compute_residuals(p, σ, k, grid, φ_bound)[:]
+compute_residuals!(R, p) = R .= compute_residuals(p, σ, k, ds, φ_bound)[:]
 compute_grad_fwd(R, p) = ForwardDiff.jacobian(compute_residuals!, R, p)
 
 ##
