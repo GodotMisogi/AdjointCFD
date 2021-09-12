@@ -2,6 +2,7 @@ using LinearAlgebra
 using Zygote
 using ForwardDiff
 using ReverseDiff
+using DiffEqOperators
 using StaticArrays
 using Base.Iterators
 using Plots
@@ -16,6 +17,18 @@ stencils(CI, deg, poke = false) = ifelse(poke, [ stencil_depth(CI, -(deg + 1)); 
 von_neumann_stencil(CI, n) = stencils(CI, n, true)
 moore_stencil(CI, n)       = stencils(CI, n, false)
 cs_stencil(φ, index)       = @view φ[von_neumann_stencil(index, 0)]
+
+## Cells and boundaries
+abstract type AbstractCell end
+
+struct Cell{N,T} <: AbstractCell
+    index  :: CartesianIndex
+    values :: SVector{N,T}
+end
+
+struct Boundary{N,T} <: AbstractCell
+    values :: SVector{N,T}
+end
 
 ## Finite differencing operations on values and stencils
 
