@@ -71,7 +71,7 @@ end
 temperature_residual(φ, k, q, ds) = -k * (Δ²x_central(φ, ds[1:2]) + Δ²y_central(φ, ds[3:4])) + q
 
 # Ruleset for thermal diffusion with a source field
-function ruleset(φs, σs, k, ds, index, φ_boundaries)
+function ruleset(φs, σs, k, dxs, dys, index, φ_boundaries)
     # Resize fields to grid
     φs = reshape(φs, size(grid))
     σs = reshape(σs, size(grid))
@@ -83,8 +83,9 @@ function ruleset(φs, σs, k, ds, index, φ_boundaries)
         ds_vec = [ substitute(ds, local_index, 0.1)          for local_index in von_neumann_stencil(index, 0) ]
     else
         # Get neighbours of a cell and corresponding sizes
-        φs_vec = cs_stencil(φs, index)
-        ds_vec = cs_stencil(ds, index)
+        φs_vec   = cs_stencil(φs, index)
+        dxp, dyp =
+        dxn, dyn = 
     end
 
     σ = σs[index]
@@ -94,7 +95,7 @@ function ruleset(φs, σs, k, ds, index, φ_boundaries)
 end
 
 # Compute residual equations
-compute_residuals(p, σ, k, ds, φ_boundary) = map(index -> ruleset(p, σ, k, ds, index, φ_boundary), CartesianIndices(p))
+compute_residuals(p, σ, k, dxs, dys, φ_boundary) = map(index -> ruleset(p, σ, k, dxs, dys, index, φ_boundary), CartesianIndices(p))
 
 newton_update(p, δp, α = 1.0) = p - α * δp
 
@@ -113,7 +114,8 @@ ys      = polynomial.(xs, Ref(ones(5)))
 grid    = reshape([ SVector(x, y) for (x, y_max) in zip(xs, ys) for y in range(y_max, -y_max, length = 2ny) ], 2ny, nx)
 
 # Compute grid spacings
-ds = norm.(grid[2:end,2:end] .- grid[1:end-1,1:end-1])
+dxs = norm.(grid[:,2:end] .- grid[:,1:end-1])
+dys = norm.(grid[2:end,:] .- grid[1:end-1,:])
 
 ##
 α       = 1.0
@@ -128,7 +130,7 @@ R       = similar(p)
 # ∂R∂p = zeros(2 .* (prod(size(ωs)), prod((reverse ∘ size)(ωs)))...)
 
 num_iters = 3
-compute_residuals!(R, p) = R .= compute_residuals(p, σ, k, ds, φ_bound)[:]
+compute_residuals!(R, p) = R .= compute_residuals(p, σ, k, dxs, dys, φ_bound)[:]
 compute_grad_fwd(R, p) = ForwardDiff.jacobian(compute_residuals!, R, p)
 
 ##
