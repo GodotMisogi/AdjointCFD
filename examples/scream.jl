@@ -21,13 +21,17 @@ cs_stencil(φ, index)       = @view φ[von_neumann_stencil(index, 0)]
 ## Cells and boundaries
 abstract type AbstractCell end
 
-struct Cell{N,T} <: AbstractCell
-    index  :: CartesianIndex
-    values :: SVector{N,T}
+struct CartesianPoint{M,N,T} <: AbstractCell
+    index  :: CartesianIndex{N}
+    values :: SVector{M,T}
 end
 
-struct Boundary{N,T} <: AbstractCell
-    values :: SVector{N,T}
+von_neumann_stencil(ci :: CartesianPoint, n) = von_neumann_stencil(ci.index, n)
+moore_stencil(ci :: CartesianPoint, n)       = moore_stencil(ci.index, n)
+
+struct CartesianBoundary{M,N,T} <: AbstractCell
+    point      :: CartesianPoint{M,N,T}
+    neighbours :: Vector{Tuple{CartesianIndex{N},SVector{M,T}}}
 end
 
 ## Finite differencing operations on values and stencils
@@ -72,20 +76,17 @@ temperature_residual(φ, k, q, ds) = -k * (Δ²x_central(φ, ds[1:2]) + Δ²y_ce
 
 # Ruleset for thermal diffusion with a source field
 function ruleset(φs, σs, k, dxs, dys, index, φ_boundaries)
-    # Resize fields to grid
-    φs = reshape(φs, size(grid))
-    σs = reshape(σs, size(grid))
-
     # Boundary conditions check
     if any(index.I .<= 1) || any(index.I .>= size(φs))
         # There have to be more conditions generally...
         φs_vec = [ substitute(φs, local_index, φ_boundaries) for local_index in von_neumann_stencil(index, 0) ]
-        ds_vec = [ substitute(ds, local_index, 0.1)          for local_index in von_neumann_stencil(index, 0) ]
+        ds_vec = [ substitute(dxs, local_index, 0.1)          for local_index in von_neumann_stencil(index, 0) ]
     else
         # Get neighbours of a cell and corresponding sizes
         φs_vec   = cs_stencil(φs, index)
-        dxp, dyp =
-        dxn, dyn = 
+        dxp, dxn = dxs[index], dxs[index + CartesianIndex(1,0)]
+        dyp, dyn = dys[index], dys[index + CartesianIndex(0,1)]
+        ds_vec   = [ dxp; dxn; dyp; dyn ]
     end
 
     σ = σs[index]
@@ -125,8 +126,8 @@ k       = 1.
 φ0      = φ_bound .* ones(size(grid)...)
 σ       = rand(size(grid)...)
 
-p       = φ0[:]
-R       = similar(p)
+p       = φ0
+R       = similar(p[:])
 # ∂R∂p = zeros(2 .* (prod(size(ωs)), prod((reverse ∘ size)(ωs)))...)
 
 num_iters = 3
@@ -156,7 +157,7 @@ function newton_solver!(R, p, num_iters = 3, α = 1.0)
         Δp   = ∂R∂p \ -R
 
         # Update state with relaxation factor
-        p   .= newton_update!(p, Δp, α)
+        p    = newton_update!(p, reshape(Δp, size(p)), α)
 
         # Error processing
         ε[i] = maximum(abs.(Δp))
@@ -170,7 +171,7 @@ R, p, ε = newton_solver!(R, p, num_iters, α)
 
 
 ## Optimization setup
-
+ 
 # Derivative stuff
 solve_direct(x, p, ∂R∂x, ∂R∂p) = reshape(reduce(hcat, ∂R∂p \ -(∂R∂x)[:,:,i][:] for i in eachindex(x)), (size(p)..., length(x)))
 
