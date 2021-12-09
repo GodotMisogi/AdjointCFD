@@ -21,6 +21,7 @@ cs_stencil(φ, index)       = @view φ[von_neumann_stencil(index, 0)]
 ## Cells and boundaries
 abstract type AbstractCell end
 
+# This structure can be encoded generically using the Store comonad; here we define it explicitly for testing.
 struct CartesianPoint{M,N,T} <: AbstractCell
     index  :: CartesianIndex{N}
     values :: SVector{M,T}
@@ -168,15 +169,3 @@ end
 
 ##
 R, p, ε = newton_solver!(R, p, num_iters, α)
-
-
-## Optimization setup
- 
-# Derivative stuff
-solve_direct(x, p, ∂R∂x, ∂R∂p) = reshape(reduce(hcat, ∂R∂p \ -(∂R∂x)[:,:,i][:] for i in eachindex(x)), (size(p)..., length(x)))
-
-solve_adjoint(f, p, ∂R∂p, dfdp) = reshape(reduce(hcat, ∂R∂p' \ -(dfdp)'[i,:] for i in eachindex(f)), (length(f), size(p)...)
-
-total_derivative_direct(∂f∂x, ψ, ∂f∂p) = ∂f∂x + [ sum(∂f∂p * ψ[n]) for n in eachindex(∂f∂x) ]
-
-total_derivative_adjoint(∂f∂x, φ, ∂R∂x) = ∂f∂x + [ sum(permutedims(φ) * reshape(∂R∂x, (length(R[:]), length(∂f∂x)))[:,n]) for n in eachindex(∂f∂x) ]
